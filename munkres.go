@@ -1,86 +1,100 @@
 // Copyright 2014 clypd, inc.
 //
 // see /LICENSE file for more information
-//
+// Modified Jan 2017 by Andrew Lockwood to support a mtrix of 64bit floating point values
+// Also ditched anything that didn't directly support the goal of returning a minimized cost route for the matrix.
 
 package munkres
 
 import (
-	"bytes"
 	"fmt"
 	"math"
 )
 
-type Matrix struct {
-	n int
-	A []int64
+//FloatMatrix Code
+type FloatMatrix struct {
+	N int64
+	A []float64
 }
 
-func NewMatrix(n int) *Matrix {
-	m := new(Matrix)
-	m.n = n
-	m.A = make([]int64, n*n)
+//NewMatrix will return a pointer to a new FloatMatrix
+func NewMatrix(n int64) (m *FloatMatrix) {
+	m = new(FloatMatrix)
+	m.N = n
+	m.A = make([]float64, n*n)
 	return m
 }
 
-func (m *Matrix) Print() {
-	for i := 0; i < m.n; i++ {
-		rowStart := i * m.n
-		for j := 0; j < m.n; j++ {
-			fmt.Print(m.A[rowStart+j], " ")
+//GetElement will return the element of the matrix at position (i,j)
+func (m FloatMatrix) GetElement(i int64, j int64) float64 {
+	return m.A[i*m.N+j]
+}
+
+//SetElement will set the element of the matrix at position (i,j)
+func (m FloatMatrix) SetElement(i int64, j int64, v float64) {
+	m.A[i*m.N+j] = v
+}
+
+//Print prints all elements of the matrix
+func (m *FloatMatrix) Print() {
+	var i, j int64
+	for i = 0; i < m.N; i++ {
+		for j = 0; j < m.N; j++ {
+			fmt.Printf("%f ", m.GetElement(i, j))
 		}
-		fmt.Println()
+		fmt.Print("\n")
 	}
 }
 
-type Mark int
-
+//Munkres Code
 const (
-	Unset Mark = iota
+	Unset mark = iota
 	Starred
 	Primed
+	zero64 = int64(0)
 )
 
-type Context struct {
-	m          *Matrix
+type mark int
+
+type context struct {
+	m          *FloatMatrix
 	rowCovered []bool
 	colCovered []bool
-	marked     []Mark
-	z0row      int
-	z0column   int
-	rowPath    []int
-	colPath    []int
+	marked     []mark
+	z0row      int64
+	z0column   int64
+	rowPath    []int64
+	colPath    []int64
 }
 
-func newContext(m *Matrix) *Context {
-	n := m.n
-	ctx := Context{
-		m: &Matrix{
-			A: make([]int64, n*n),
-			n: n,
+type step interface {
+	compute(*context) (step, bool)
+}
+
+type step1 struct{}
+type step2 struct{}
+type step3 struct{}
+type step4 struct{}
+type step5 struct{}
+type step6 struct{}
+
+func newContext(m *FloatMatrix) *context {
+	ctx := context{
+		m: &FloatMatrix{
+			A: make([]float64, m.N*m.N),
+			N: m.N,
 		},
-		rowPath: make([]int, 2*n),
-		colPath: make([]int, 2*n),
-		marked:  make([]Mark, n*n),
+		rowPath: make([]int64, 2*m.N),
+		colPath: make([]int64, 2*m.N),
+		marked:  make([]mark, m.N*m.N),
 	}
 	copy(ctx.m.A, m.A)
 	clearCovers(&ctx)
 	return &ctx
 }
 
-type Step interface {
-	Compute(*Context) (Step, bool)
-}
-
-type Step1 struct{}
-type Step2 struct{}
-type Step3 struct{}
-type Step4 struct{}
-type Step5 struct{}
-type Step6 struct{}
-
-func min(a ...int64) int64 {
-	min := int64(math.MaxInt64)
+func min(a ...float64) float64 {
+	min := math.MaxFloat64
 	for _, i := range a {
 		if i < min {
 			min = i
@@ -89,29 +103,29 @@ func min(a ...int64) int64 {
 	return min
 }
 
-func (Step1) Compute(ctx *Context) (Step, bool) {
-	n := ctx.m.n
-	for i := 0; i < n; i++ {
+func (step1) compute(ctx *context) (step, bool) {
+	n := ctx.m.N
+	for i := zero64; i < n; i++ {
 		row := ctx.m.A[i*n : (i+1)*n]
 		minval := min(row...)
 		for idx := range row {
 			row[idx] -= minval
 		}
 	}
-	return Step2{}, false
+	return step2{}, false
 }
 
-func clearCovers(ctx *Context) {
-	n := ctx.m.n
+func clearCovers(ctx *context) {
+	n := ctx.m.N
 	ctx.rowCovered = make([]bool, n)
 	ctx.colCovered = make([]bool, n)
 }
 
-func (Step2) Compute(ctx *Context) (Step, bool) {
-	n := ctx.m.n
-	for i := 0; i < n; i++ {
+func (step2) compute(ctx *context) (step, bool) {
+	n := ctx.m.N
+	for i := zero64; i < n; i++ {
 		rowStart := i * n
-		for j := 0; j < n; j++ {
+		for j := zero64; j < n; j++ {
 			pos := rowStart + j
 			if (ctx.m.A[pos] == 0) &&
 				!ctx.colCovered[j] && !ctx.rowCovered[i] {
@@ -122,15 +136,15 @@ func (Step2) Compute(ctx *Context) (Step, bool) {
 		}
 	}
 	clearCovers(ctx)
-	return Step3{}, false
+	return step3{}, false
 }
 
-func (Step3) Compute(ctx *Context) (Step, bool) {
-	n := ctx.m.n
-	count := 0
-	for i := 0; i < n; i++ {
+func (step3) compute(ctx *context) (step, bool) {
+	n := ctx.m.N
+	count := zero64
+	for i := zero64; i < n; i++ {
 		rowStart := i * n
-		for j := 0; j < n; j++ {
+		for j := zero64; j < n; j++ {
 			pos := rowStart + j
 			if ctx.marked[pos] == Starred {
 				ctx.colCovered[j] = true
@@ -142,17 +156,17 @@ func (Step3) Compute(ctx *Context) (Step, bool) {
 		return nil, true
 	}
 
-	return Step4{}, false
+	return step4{}, false
 }
 
-func findAZero(ctx *Context) (int, int) {
-	row := -1
-	col := -1
-	n := ctx.m.n
+func findAZero(ctx *context) (int64, int64) {
+	row := int64(-1)
+	col := int64(-1)
+	n := ctx.m.N
 Loop:
-	for i := 0; i < n; i++ {
+	for i := zero64; i < n; i++ {
 		rowStart := i * n
-		for j := 0; j < n; j++ {
+		for j := zero64; j < n; j++ {
 			if (ctx.m.A[rowStart+j] == 0) &&
 				!ctx.rowCovered[i] && !ctx.colCovered[j] {
 				row = i
@@ -164,9 +178,9 @@ Loop:
 	return row, col
 }
 
-func findStarInRow(ctx *Context, row int) int {
-	n := ctx.m.n
-	for j := 0; j < n; j++ {
+func findStarInRow(ctx *context, row int64) int64 {
+	n := ctx.m.N
+	for j := zero64; j < n; j++ {
 		if ctx.marked[row*n+j] == Starred {
 			return j
 		}
@@ -174,14 +188,14 @@ func findStarInRow(ctx *Context, row int) int {
 	return -1
 }
 
-func (Step4) Compute(ctx *Context) (Step, bool) {
-	starCol := -1
+func (step4) compute(ctx *context) (step, bool) {
+	starCol := int64(-1)
 	for {
 		row, col := findAZero(ctx)
 		if row < 0 {
-			return Step6{}, false
+			return step6{}, false
 		}
-		n := ctx.m.n
+		n := ctx.m.N
 		pos := row*n + col
 		ctx.marked[pos] = Primed
 		starCol = findStarInRow(ctx, row)
@@ -195,12 +209,12 @@ func (Step4) Compute(ctx *Context) (Step, bool) {
 			break
 		}
 	}
-	return Step5{}, false
+	return step5{}, false
 }
 
-func findStarInCol(ctx *Context, col int) int {
-	n := ctx.m.n
-	for i := 0; i < n; i++ {
+func findStarInCol(ctx *context, col int64) int64 {
+	n := ctx.m.N
+	for i := zero64; i < n; i++ {
 		if ctx.marked[i*n+col] == Starred {
 			return i
 		}
@@ -208,9 +222,9 @@ func findStarInCol(ctx *Context, col int) int {
 	return -1
 }
 
-func findPrimeInRow(ctx *Context, row int) int {
-	n := ctx.m.n
-	for j := 0; j < n; j++ {
+func findPrimeInRow(ctx *context, row int64) int64 {
+	n := ctx.m.N
+	for j := zero64; j < n; j++ {
 		if ctx.marked[row*n+j] == Primed {
 			return j
 		}
@@ -218,8 +232,8 @@ func findPrimeInRow(ctx *Context, row int) int {
 	return -1
 }
 
-func convertPath(ctx *Context, count int) {
-	n := ctx.m.n
+func convertPath(ctx *context, count int) {
+	n := ctx.m.N
 	for i := 0; i < count+1; i++ {
 		r, c := ctx.rowPath[i], ctx.colPath[i]
 		offset := r*n + c
@@ -231,11 +245,11 @@ func convertPath(ctx *Context, count int) {
 	}
 }
 
-func erasePrimes(ctx *Context) {
-	n := ctx.m.n
-	for i := 0; i < n; i++ {
+func erasePrimes(ctx *context) {
+	n := ctx.m.N
+	for i := zero64; i < n; i++ {
 		rowStart := i * n
-		for j := 0; j < n; j++ {
+		for j := zero64; j < n; j++ {
 			if ctx.marked[rowStart+j] == Primed {
 				ctx.marked[rowStart+j] = Unset
 			}
@@ -243,7 +257,7 @@ func erasePrimes(ctx *Context) {
 	}
 }
 
-func (Step5) Compute(ctx *Context) (Step, bool) {
+func (step5) compute(ctx *context) (step, bool) {
 	count := 0
 	ctx.rowPath[count] = ctx.z0row
 	ctx.colPath[count] = ctx.z0column
@@ -268,15 +282,15 @@ func (Step5) Compute(ctx *Context) (Step, bool) {
 	convertPath(ctx, count)
 	clearCovers(ctx)
 	erasePrimes(ctx)
-	return Step3{}, false
+	return step3{}, false
 }
 
-func findSmallest(ctx *Context) int64 {
-	n := ctx.m.n
-	minval := int64(math.MaxInt64)
-	for i := 0; i < n; i++ {
+func findSmallest(ctx *context) float64 {
+	n := ctx.m.N
+	minval := math.MaxFloat64
+	for i := zero64; i < n; i++ {
 		rowStart := i * n
-		for j := 0; j < n; j++ {
+		for j := zero64; j < n; j++ {
 			if (!ctx.rowCovered[i]) && (!ctx.colCovered[j]) {
 				a := ctx.m.A[rowStart+j]
 				if minval > a {
@@ -288,12 +302,12 @@ func findSmallest(ctx *Context) int64 {
 	return minval
 }
 
-func (Step6) Compute(ctx *Context) (Step, bool) {
-	n := ctx.m.n
+func (step6) compute(ctx *context) (step, bool) {
+	n := ctx.m.N
 	minval := findSmallest(ctx)
-	for i := 0; i < n; i++ {
+	for i := zero64; i < n; i++ {
 		rowStart := i * n
-		for j := 0; j < n; j++ {
+		for j := zero64; j < n; j++ {
 			if ctx.rowCovered[i] {
 				ctx.m.A[rowStart+j] += minval
 			}
@@ -302,83 +316,28 @@ func (Step6) Compute(ctx *Context) (Step, bool) {
 			}
 		}
 	}
-	return Step4{}, false
+	return step4{}, false
 }
 
-type RowCol struct {
-	Row, Col int
-}
-
-func (ctx *Context) String() string {
-	var buf bytes.Buffer
-	n := ctx.m.n
-	for i := 0; i < n; i++ {
-		rowStart := i * n
-		for j := 0; j < n; j++ {
-			fmt.Fprint(&buf, ctx.m.A[i*n+j])
-			if ctx.marked[rowStart+j] == Starred {
-				fmt.Fprint(&buf, "*")
-			}
-			if ctx.marked[rowStart+j] == Primed {
-				fmt.Fprint(&buf, "'")
-			}
-			fmt.Fprint(&buf, " ")
-		}
-	}
-	fmt.Fprint(&buf, "; cover row/col: ")
-	printCover := func(c []bool) {
-		for _, r := range c {
-			if r {
-				fmt.Fprint(&buf, "T")
-			} else {
-				fmt.Fprint(&buf, "F")
-			}
-		}
-	}
-	printCover(ctx.rowCovered)
-	fmt.Fprint(&buf, "/")
-	printCover(ctx.colCovered)
-	return buf.String()
-}
-
-var (
-	Debugger func(Step, *Context) = func(Step, *Context) {}
-)
-
-func computeMunkres(m *Matrix, minimize bool) []RowCol {
+//GetMunkresMinScore returns the sum of the elements that comprise the lowest cost path
+func GetMunkresMinScore(m *FloatMatrix) float64 {
 	ctx := newContext(m)
-	if !minimize {
-		for idx := range ctx.m.A {
-			ctx.m.A[idx] = math.MaxInt64 - ctx.m.A[idx]
-		}
-	}
-	var step Step
-	step = Step1{}
+
+	var stp step
+	stp = step1{}
 	for {
-		nextStep, done := step.Compute(ctx)
-		Debugger(step, ctx)
+		nextStep, done := stp.compute(ctx)
+
 		if done {
 			break
 		}
-		step = nextStep
+		stp = nextStep
 	}
-	results := []RowCol{}
-	n := m.n
-	for i := 0; i < n; i++ {
-		rowStart := i * n
-		for j := 0; j < n; j++ {
-			if ctx.marked[rowStart+j] == Starred {
-				results = append(results, RowCol{i, j})
-			}
-		}
+
+	var sumMinCost float64
+	for markedIdx, markedVal := range ctx.marked {
+		sumMinCost += float64(markedVal) * m.A[markedIdx]
 	}
-	return results
-}
 
-func ComputeMunkresMax(m *Matrix) []RowCol {
-	return computeMunkres(m, false)
-}
-
-func ComputeMunkresMin(m *Matrix) []RowCol {
-	return computeMunkres(m, true)
+	return sumMinCost
 }
